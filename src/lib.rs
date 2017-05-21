@@ -58,22 +58,24 @@ impl<T, ICol> FromIterator<ICol> for Jagged2<T>
         let mut storage = Vec::new();
         // TODO: if we make onsets mutable and of type *const T, we can first base off of null
         // and then offset by the finalized address.
-        let mut onsets = Vec::with_capacity(row_iter.size_hint().0);
-        for col_iter in row_iter {
-            onsets.push(storage.len());
-            storage.extend(col_iter);
-        }
-        let len = storage.len();
+        let mut onsets = Vec::with_capacity(1 + row_iter.size_hint().0);
+        unsafe {
+            for col_iter in row_iter {
+                // store the address of the row, relative to the start of the storage.
+                onsets.push((0 as *mut T).offset(storage.len() as isize));
+                storage.extend(col_iter);
+            }
+            onsets.push((0 as *mut T).offset(storage.len() as isize));
 
-        // Transform the onsets into an array that holds the *address* of each row.
-        let storage = Box::into_raw(storage.into_boxed_slice()) as *mut T;
-        let onsets = onsets.into_iter().chain(Some(len).into_iter())
-            .map(|idx| unsafe {
-                storage.offset(idx as isize)
-            })
-            .collect::<Vec<_>>().into_boxed_slice();
-        // Now data can be accessed via `onsets[row][column]`
-        Self{ onsets }
+            let storage = Box::into_raw(storage.into_boxed_slice()) as *mut T;
+            // Transform the onsets from relative to absolute address.
+            for onset in onsets.iter_mut() {
+                *onset = (storage as usize + *onset as usize) as *mut T;
+            }
+            let onsets = onsets.into_boxed_slice();
+            // Now data can be accessed via `onsets[row][column]`
+            Self{ onsets }
+        }
     }
 }
 
