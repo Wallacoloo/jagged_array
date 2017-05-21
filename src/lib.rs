@@ -6,12 +6,20 @@ use std::mem;
 use std::ops::Index;
 use std::slice;
 
+/// 2-dimensional jagged array type. It's equivalent to a
+/// `Box<Box<[mut T]>>`, but where all array data is stored contiguously
+/// and fewer allocations are performed.
+/// 
+/// Note that no dimension of the array can be modified after creation.
 pub struct Jagged2<T> {
     /// Indicates where each row begins in memory.
     /// Note that onsets[0] points to the beginning of the underlying storage,
     /// which needs to be manually freed on drop,
     /// and onsets[len-1] points to the end of storage.
-    /// Because of this, onsets.len() == num_rows + 1
+    /// Because of this, onsets.len() == num_rows + 1.
+    /// 
+    /// Minus bounds checking, data can be accessed essentially via
+    /// `onsets[row][column]`
     onsets: Box<[*mut T]>,
 }
 
@@ -48,6 +56,8 @@ impl<T, ICol> FromIterator<ICol> for Jagged2<T>
         // Collect the iterator into a flat vector,
         // and for each row, write the index into the flat vector at which it starts.
         let mut storage = Vec::new();
+        // TODO: if we make onsets mutable and of type *const T, we can first base off of null
+        // and then offset by the finalized address.
         let mut onsets = Vec::with_capacity(row_iter.size_hint().0);
         for col_iter in row_iter {
             onsets.push(storage.len());
