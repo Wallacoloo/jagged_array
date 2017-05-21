@@ -1,6 +1,8 @@
 //! This crate provides a jagged array, i.e. a type that is semantically equivalent to
 //! `Box<[Box<[T]>]>`, but implemented with better memory locality and fewer heap allocations.
 
+#[macro_use] extern crate try_opt;
+
 use std::iter::FromIterator;
 use std::mem;
 use std::ops::Index;
@@ -89,13 +91,10 @@ impl<T> Jagged2<T> {
     pub fn get(&self, index: (usize, usize)) -> Option<&T> {
         // Figure out which indices in the storage correspond to the
         // start and end of the selected row.
-        let row_end = match self.onsets.get(1+index.0) {
-            Some(addr) => *addr,
-            None => { return None }
-        };
+        let row_end = *try_opt!(self.onsets.get(1+index.0));
         // Because onsets[1+index.0] exists, it's safe to directly access
         // onsets[index.0]
-        let row_onset = *self.onsets.get(index.0).unwrap();
+        let row_onset = self.onsets[index.0];
         // TODO: Can T be size 0? If so this errors.
         let row_len = (row_end as usize - row_onset as usize)/mem::size_of::<T>();
 
