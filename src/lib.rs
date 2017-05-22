@@ -3,7 +3,7 @@
 //!
 //! # Example
 //!
-//! ```
+//! ```rust
 //! extern crate jagged_array;
 //! extern crate streaming_iterator;
 //! use std::iter::FromIterator;
