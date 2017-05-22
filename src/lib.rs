@@ -4,7 +4,6 @@
 #[macro_use] extern crate try_opt;
 
 use std::iter::FromIterator;
-use std::mem;
 use std::ops::Index;
 use std::slice;
 
@@ -16,15 +15,11 @@ use std::slice;
 /// **Jagged2 only supports positively-sized types** (i.e. empty structs or `()`
 /// will cause a runtime error).
 pub struct Jagged2<T> {
-    /// Indicates where each row begins in memory.
-    /// Note that onsets[0] points to the beginning of the underlying storage,
-    /// which needs to be manually freed on drop,
-    /// and onsets[len-1] points to the end of storage.
-    /// Because of this, onsets.len() == num_rows + 1.
-    /// 
+    /// Slices into the underlying storage, indexed by row.
     /// Minus bounds checking, data can be accessed essentially via
-    /// `onsets[row][column]`
-    onsets: Box<[*mut T]>,
+    /// `onsets[row].0[column]`.
+    /// Row length is accessed by `onsets[row].1`.
+    onsets: Box<[(*mut T, usize)]>,
 }
 
 impl<T> Index<(usize, usize)> for Jagged2<T> {
@@ -55,7 +50,6 @@ impl<T, ICol> FromIterator<ICol> for Jagged2<T>
     fn from_iter<IRow>(row_iter: IRow) -> Self
         where IRow: IntoIterator<Item=ICol>
     {
-        assert!(mem::size_of::<T>() != 0, "Zero-Sized Types are not currently supported");
         // Tranform all inputs into their iterators.
         // We need to collect into a vector so that we can get an accurate size
         // estimate of the overall storage BEFORE any more allocation.
@@ -63,21 +57,22 @@ impl<T, ICol> FromIterator<ICol> for Jagged2<T>
         // (can halve the time it takes to construct the jagged array).
         let row_iters: Vec<_> = row_iter.into_iter().map(|i| i.into_iter()).collect();
         let mut storage = Vec::with_capacity(row_iters.iter().map(|i| i.size_hint().0).sum());
-        let mut onsets = Vec::with_capacity(1 + row_iters.len());
+        let mut onsets = Vec::with_capacity(row_iters.len());
         for col_iter in row_iters {
             // store the index of the row, transmuted to *mut T.
             // This transmutation is done in order to reuse this vector for
             // holding absolute row addresses, once the base address is finalized.
-            onsets.push(storage.len() as *mut T);
+            let row_start = storage.len();
             storage.extend(col_iter);
+            let row_end = storage.len();
+            onsets.push((row_start as *mut T, row_end-row_start));
         }
-        onsets.push(storage.len() as *mut T);
 
         let storage = Box::into_raw(storage.into_boxed_slice()) as *mut T;
         // Transform the onsets from relative indices to absolute addresses.
         for onset in onsets.iter_mut() {
             unsafe {
-                *onset = storage.offset(*onset as isize);
+                onset.0 = storage.offset(onset.0 as isize);
             }
         }
         let onsets = onsets.into_boxed_slice();
@@ -132,14 +127,14 @@ impl<T> Jagged2<T> {
 
     /// Retrieve the given row as a contiguous slice of memory.
     pub fn get_row(&self, row: usize) -> Option<&[T]> {
-        let (row_onset, row_len) = try_opt!(self.get_row_components(row));
+        let &(row_onset, row_len) = try_opt!(self.onsets.get(row));
         unsafe {
             Some(slice::from_raw_parts(row_onset, row_len))
         }
     }
     /// Retrieve the given row as a contiguous slice of mutable memory.
     pub fn get_row_mut(&mut self, row: usize) -> Option<&mut [T]> {
-        let (row_onset, row_len) = try_opt!(self.get_row_components(row));
+        let &(row_onset, row_len) = try_opt!(self.onsets.get(row));
         unsafe {
             Some(slice::from_raw_parts_mut(row_onset, row_len))
         }
@@ -160,9 +155,11 @@ impl<T> Jagged2<T> {
     /// assert!(a.as_flat_slice() == &vec![1, 2, 3, 4, 5, 6][..]);
     /// ```
     pub fn as_flat_slice(&self) -> &[T] {
-        let (addr_start, len) = self.slice_components();
-        unsafe {
-            slice::from_raw_parts(addr_start, len)
+        match self.onsets.get(0) {
+            None => &[],
+            Some(&(addr_start, _)) => unsafe {
+                slice::from_raw_parts(addr_start, self.flat_len())
+            }
         }
     }
     /// Return a mutable slice over the entire storage area.
@@ -182,42 +179,22 @@ impl<T> Jagged2<T> {
     /// assert!(a[(1, 0)] == 33);
     /// ```
     pub fn as_flat_slice_mut(&mut self) -> &mut [T] {
-        let (addr_start, len) = self.slice_components();
-        unsafe {
-            slice::from_raw_parts_mut(addr_start, len)
+        match self.onsets.get(0) {
+            None => &mut [],
+            Some(&(addr_start, _)) => unsafe {
+                slice::from_raw_parts_mut(addr_start, self.flat_len())
+            }
         }
     }
 
-    /// Return the base address of the row and the number of items in the row,
-    /// or None if the row doesn't exist.
-    ///
-    /// This method is useful in creating views of individual rows.
-    fn get_row_components(&self, row: usize) -> Option<(*mut T, usize)> {
-        // Figure out which indices in the storage correspond to the
-        // start and end of the selected row.
-        //
-        // Note: if index.0 == usize::MAX, indexing is impossible;
-        // we cannot have that many rows because of the extra overhead for tracking the row's END.
-        // But usize::MAX = (-1isize as usize), so we definitely want to make
-        // sure we correctly error for that query.
-        let idx_of_row_end = try_opt!(row.checked_add(1));
-        let row_end = *try_opt!(self.onsets.get(idx_of_row_end));
-        // Because onsets[1+index.0] exists, it's safe to directly access
-        // onsets[index.0]
-        let row_onset = self.onsets[row];
-        // TODO: Can T be size 0? If so this errors.
-        let row_len = (row_end as usize - row_onset as usize)/mem::size_of::<T>();
-
-        Some((row_onset, row_len))
+    /// Return the total number of `T` held in the array.
+    pub fn flat_len(&self) -> usize {
+        // TODO: non-zero sized types can use a fast-path
+        self.onsets.iter().map(|row| row.1).sum()
     }
-
-    /// Return the base pointer to the storage area and the number of items stored.
-    /// This is used to construct slice views of the storage.
-    fn slice_components(&self) -> (*mut T, usize) {
-        let addr_start = self.onsets[0];
-        let addr_end = *self.onsets.last().unwrap();
-        let len = (addr_end as usize - addr_start as usize)/mem::size_of::<T>();
-        (addr_start, len)
+    /// Return the number of rows held in the array.
+    pub fn len(&self) -> usize {
+        self.onsets.len()
     }
 }
 

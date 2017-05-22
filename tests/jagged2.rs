@@ -4,39 +4,54 @@ use std::iter::FromIterator;
 use jagged_array::Jagged2;
 
 #[test]
-fn test_create() {
+fn test_sized() {
     let a = Jagged2::from_iter(vec![
         vec![1, 2, 3],
         vec![4],
         vec![5, 6, 7, 8],
         vec![],
     ]);
+    assert_eq!(a.len(), 4);
+    assert_eq!(a.flat_len(), 8);
     // Test row 0
-    assert!(a[(0, 0)] == 1);
-    assert!(a[(0, 1)] == 2);
-    assert!(a.get((0, 2)) == Some(&3));
-    assert!(a.get((0, 3)) == None);
+    assert_eq!(a[(0, 0)], 1);
+    assert_eq!(a[(0, 1)], 2);
+    assert_eq!(a.get((0, 2)), Some(&3));
+    assert_eq!(a.get((0, 3)), None);
     // Test row 1
-    assert!(a[(1, 0)] == 4);
-    assert!(a.get((1, 1)) == None);
+    assert_eq!(a[(1, 0)], 4);
+    assert_eq!(a.get((1, 1)), None);
     // Test row 2
-    assert!(a[(2, 3)] == 8);
-    assert!(a.get((2, 4)) == None);
-    assert!(a.get((2, 11)) == None);
+    assert_eq!(a[(2, 3)], 8);
+    assert_eq!(a.get((2, 4)), None);
+    assert_eq!(a.get((2, 11)), None);
     // Test invalid rows
-    assert!(a.get((3, 0)) == None);
-    assert!(a.get((3, 3)) == None);
-    assert!(a.get((1234, 44)) == None);
-    assert!(a.get((-1isize as usize, 0)) == None);
+    assert_eq!(a.get((3, 0)), None);
+    assert_eq!(a.get((3, 3)), None);
+    assert_eq!(a.get((1234, 44)), None);
+    assert_eq!(a.get((-1isize as usize, 0)), None);
+    assert_eq!(a.get((0, -1isize as usize)), None);
 }
 
 #[test]
-#[should_panic]
 fn test_zero_sized() {
-    Jagged2::from_iter(vec![
+    let a = Jagged2::from_iter(vec![
         vec![(), ()],
         vec![()],
         vec![],
         vec![(), (), ()],
     ]);
+    assert_eq!(a.len(), 4);
+    assert_eq!(a.flat_len(), 6);
+    // Test row 0
+    assert_eq!(a[(0, 0)], ());
+    assert_eq!(a[(0, 1)], ());
+    assert_eq!(a.get((0, 2)), None);
+    // Test row 2
+    assert_eq!(a.get((2, 0)), None);
+    // Test invalid rows
+    assert_eq!(a.get((3, 3)), None);
+    assert_eq!(a.get((1234, 44)), None);
+    assert_eq!(a.get((-1isize as usize, 0)), None);
+    assert_eq!(a.get((0, -1isize as usize)), None);
 }
