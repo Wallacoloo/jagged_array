@@ -71,7 +71,7 @@ pub struct Jagged2<T> {
 /// [`Jagged2`]: struct.Jagged2.html
 /// [`next`]: ../streaming_iterator/trait.StreamingIterator.html#method.next
 /// [`Jagged2::stream`]: struct.Jagged2.html#method.stream
-#[derive(Debug)]
+//#[derive(Debug)] // TODO: uncomment this when streaming_iterator adds Debug support.
 pub struct Stream<'a, T: 'a> {
     onset_iter: stream::Convert<slice::Iter<'a, (*mut T, usize)>>,
 }
