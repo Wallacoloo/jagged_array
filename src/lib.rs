@@ -56,14 +56,15 @@ impl<T, ICol> FromIterator<ICol> for Jagged2<T>
         where IRow: IntoIterator<Item=ICol>
     {
         assert!(mem::size_of::<T>() != 0, "Zero-Sized Types are not currently supported");
-        let row_iter = row_iter.into_iter();
-        // Collect the iterator into a flat vector,
-        // and for each row, write the index into the flat vector at which it starts.
-        let mut storage = Vec::new();
-        // TODO: if we make onsets mutable and of type *const T, we can first base off of null
-        // and then offset by the finalized address.
-        let mut onsets = Vec::with_capacity(1 + row_iter.size_hint().0);
-        for col_iter in row_iter {
+        // Tranform all inputs into their iterators.
+        // We need to collect into a vector so that we can get an accurate size
+        // estimate of the overall storage BEFORE any more allocation.
+        // Having an accurate size to use with Vec::with_capacity makes a substantial different
+        // (can halve the time it takes to construct the jagged array).
+        let row_iters: Vec<_> = row_iter.into_iter().map(|i| i.into_iter()).collect();
+        let mut storage = Vec::with_capacity(row_iters.iter().map(|i| i.size_hint().0).sum());
+        let mut onsets = Vec::with_capacity(1 + row_iters.len());
+        for col_iter in row_iters {
             // store the index of the row, transmuted to *mut T.
             // This transmutation is done in order to reuse this vector for
             // holding absolute row addresses, once the base address is finalized.
