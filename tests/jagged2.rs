@@ -55,3 +55,18 @@ fn test_zero_sized() {
     assert_eq!(a.get((-1isize as usize, 0)), None);
     assert_eq!(a.get((0, -1isize as usize)), None);
 }
+
+#[test]
+fn test_empty() {
+    fn test_empty_for(a: Jagged2<u16>) {
+        assert_eq!(a.len(), 0);
+        assert_eq!(a.flat_len(), 0);
+        assert_eq!(a.get((0, 0)), None);
+        assert_eq!(a.get_row(0), None);
+        assert_eq!(a.as_flat_slice(), &[]);
+    }
+    test_empty_for(Default::default());
+    test_empty_for(Jagged2::from_iter(
+        (0..0).map(|_| (0..0))
+    ));
+}

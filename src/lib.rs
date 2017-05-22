@@ -100,6 +100,7 @@ impl<T> Drop for Jagged2<T> {
 
 impl<T> Default for Jagged2<T> {
     fn default() -> Self {
+        // zero-sized array with no elements
         let onsets = Vec::new().into_boxed_slice();
         Self{ onsets }
     }
