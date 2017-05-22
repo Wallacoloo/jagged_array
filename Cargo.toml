@@ -5,3 +5,6 @@ authors = ["Colin Wallace <wallacoloo@gmail.com>"]
 
 [dependencies]
 try_opt = "0.1"
+
+[dev-dependencies]
+rand = "0.3"
