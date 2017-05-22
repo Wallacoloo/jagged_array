@@ -10,7 +10,6 @@ use std::iter::FromIterator;
 use jagged_array::Jagged2;
 use streaming_iterator::StreamingIterator;
 
-# fn main() {
 // Create a jagged array from a vector of vectors
 let mut a = Jagged2::from_iter(vec![
     vec![1, 2, 3],
@@ -35,7 +34,6 @@ let mut iter = a.stream();
 while let Some(row) = iter.next() {
     println!("row: {:?}", row);
 }
-# }
 ```
 
 
