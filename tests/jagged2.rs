@@ -30,3 +30,13 @@ fn test_create() {
     assert!(a.get((-1isize as usize, 0)) == None);
 }
 
+#[test]
+#[should_panic]
+fn test_zero_sized() {
+    Jagged2::from_iter(vec![
+        vec![(), ()],
+        vec![()],
+        vec![],
+        vec![(), (), ()],
+    ]);
+}

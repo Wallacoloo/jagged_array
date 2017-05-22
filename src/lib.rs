@@ -13,6 +13,8 @@ use std::slice;
 /// and fewer allocations are performed.
 /// 
 /// Note that no dimension of the array can be modified after creation.
+/// **Jagged2 only supports positively-sized types** (i.e. empty structs or `()`
+/// will cause a runtime error).
 pub struct Jagged2<T> {
     /// Indicates where each row begins in memory.
     /// Note that onsets[0] points to the beginning of the underlying storage,
@@ -53,6 +55,7 @@ impl<T, ICol> FromIterator<ICol> for Jagged2<T>
     fn from_iter<IRow>(row_iter: IRow) -> Self
         where IRow: IntoIterator<Item=ICol>
     {
+        assert!(mem::size_of::<T>() != 0, "Zero-Sized Types are not currently supported");
         let row_iter = row_iter.into_iter();
         // Collect the iterator into a flat vector,
         // and for each row, write the index into the flat vector at which it starts.
