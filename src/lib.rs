@@ -4,6 +4,7 @@
 #[macro_use] extern crate try_opt;
 
 use std::iter::FromIterator;
+use std::mem;
 use std::ops::Index;
 use std::slice;
 
@@ -47,6 +48,22 @@ impl<T, ICol> FromIterator<ICol> for Jagged2<T>
     where ICol: IntoIterator<Item=T>
 {
     /// Allow construction from any type that behaves like `[[T]]`.
+    ///
+    /// # Example
+    /// ```
+    /// use std::iter::FromIterator;
+    /// use jagged_array::Jagged2;
+    /// let a = Jagged2::from_iter(vec![
+    ///     vec![1, 2, 3],
+    ///     vec![4],
+    ///     vec![],
+    ///     vec![5, 6],
+    /// ]);
+    /// assert_eq!(a.len(), 4); // 4 rows
+    /// assert_eq!(a.as_flat_slice(), &[1, 2, 3, 4, 5, 6][..]); // contiguous view
+    /// assert_eq!(a.get_row(3), Some(&[5, 6][..])); // third row
+    /// assert_eq!(a[(0, 1)], 2); // first row, second column
+    /// ```
     fn from_iter<IRow>(row_iter: IRow) -> Self
         where IRow: IntoIterator<Item=ICol>
     {
@@ -95,8 +112,8 @@ impl<T> Jagged2<T> {
     ///     vec![],
     ///     vec![5, 6],
     /// ]);
-    /// assert!(a.get((1, 0)) == Some(&4));
-    /// assert!(a.get((2, 0)) == None);
+    /// assert_eq!(a.get((1, 0)), Some(&4));
+    /// assert_eq!(a.get((2, 0)), None);
     /// ```
     pub fn get(&self, index: (usize, usize)) -> Option<&T> {
         let view = try_opt!(self.get_row(index.0));
@@ -116,9 +133,9 @@ impl<T> Jagged2<T> {
     ///     vec![],
     ///     vec![5, 6],
     /// ]);
-    /// assert!(a.get((1, 0)) == Some(&4));
+    /// assert_eq!(a.get((1, 0)), Some(&4));
     /// *a.get_mut((1, 0)).unwrap() = 11;
-    /// assert!(a.get((1, 0)) == Some(&11));
+    /// assert_eq!(a.get((1, 0)), Some(&11));
     /// ```
     pub fn get_mut(&mut self, index: (usize, usize)) -> Option<&mut T> {
         let view = try_opt!(self.get_row_mut(index.0));
@@ -126,6 +143,19 @@ impl<T> Jagged2<T> {
     }
 
     /// Retrieve the given row as a contiguous slice of memory.
+    ///
+    /// # Example
+    /// ```
+    /// use std::iter::FromIterator;
+    /// use jagged_array::Jagged2;
+    /// let a = Jagged2::from_iter(vec![
+    ///     vec![1, 2, 3],
+    ///     vec![4],
+    ///     vec![],
+    ///     vec![5, 6],
+    /// ]);
+    /// assert_eq!(a.get_row(3), Some(&[5, 6][..]));
+    /// ```
     pub fn get_row(&self, row: usize) -> Option<&[T]> {
         let &(row_onset, row_len) = try_opt!(self.onsets.get(row));
         unsafe {
@@ -133,6 +163,21 @@ impl<T> Jagged2<T> {
         }
     }
     /// Retrieve the given row as a contiguous slice of mutable memory.
+    ///
+    /// # Example
+    /// ```
+    /// use std::iter::FromIterator;
+    /// use jagged_array::Jagged2;
+    /// let mut a = Jagged2::from_iter(vec![
+    ///     vec![1, 2, 3],
+    ///     vec![4],
+    ///     vec![],
+    ///     vec![5, 6],
+    /// ]);
+    /// assert_eq!(a.get_row_mut(3), Some(&mut[5, 6][..]));
+    /// a.get_row_mut(3).unwrap()[1] = 11;
+    /// assert_eq!(a[(3, 1)], 11);
+    /// ```
     pub fn get_row_mut(&mut self, row: usize) -> Option<&mut [T]> {
         let &(row_onset, row_len) = try_opt!(self.onsets.get(row));
         unsafe {
@@ -152,7 +197,7 @@ impl<T> Jagged2<T> {
     ///     vec![],
     ///     vec![5, 6],
     /// ]);
-    /// assert!(a.as_flat_slice() == &vec![1, 2, 3, 4, 5, 6][..]);
+    /// assert_eq!(a.as_flat_slice(), &[1, 2, 3, 4, 5, 6][..]);
     /// ```
     pub fn as_flat_slice(&self) -> &[T] {
         match self.onsets.get(0) {
@@ -174,9 +219,9 @@ impl<T> Jagged2<T> {
     ///     vec![],
     ///     vec![5, 6],
     /// ]);
-    /// assert!(a.as_flat_slice()[3] == 4);
+    /// assert_eq!(a.as_flat_slice()[3], 4);
     /// a.as_flat_slice_mut()[3] = 33;
-    /// assert!(a[(1, 0)] == 33);
+    /// assert_eq!(a[(1, 0)], 33);
     /// ```
     pub fn as_flat_slice_mut(&mut self) -> &mut [T] {
         match self.onsets.get(0) {
@@ -188,11 +233,51 @@ impl<T> Jagged2<T> {
     }
 
     /// Return the total number of `T` held in the array.
+    ///
+    /// # Example
+    /// ```
+    /// use std::iter::FromIterator;
+    /// use jagged_array::Jagged2;
+    /// let a = Jagged2::from_iter(vec![
+    ///     vec![1, 2, 3],
+    ///     vec![4],
+    ///     vec![],
+    ///     vec![5, 6],
+    /// ]);
+    /// assert_eq!(a.flat_len(), 6);
+    /// ```
     pub fn flat_len(&self) -> usize {
-        // TODO: non-zero sized types can use a fast-path
-        self.onsets.iter().map(|row| row.1).sum()
+        if mem::size_of::<T>() == 0 {
+            // For zero-sized types, we need to explicitly sum the length of each row slice;
+            // we cannot use addressing tricks because each element shares the same address.
+            self.onsets.iter().map(|row| row.1).sum()
+        } else {
+            // rows are stored sequentially and contiguously, with no extra padding,
+            // so the number of elements is (&rows.first() - &rows.last())/sizeof(T) +
+            // rows.last().len()
+            let (last_addr, last_len) = match self.onsets.last() {
+                None => return 0,
+                Some(&(addr, len)) => (addr, len),
+            };
+            // if the array is empty, we would have returned already; safe to index row 0 now.
+            let first_addr = self.onsets[0].0;
+            (last_addr as usize - first_addr as usize) / mem::size_of::<T>() + last_len
+        }
     }
     /// Return the number of rows held in the array.
+    ///
+    /// # Example
+    /// ```
+    /// use std::iter::FromIterator;
+    /// use jagged_array::Jagged2;
+    /// let a = Jagged2::from_iter(vec![
+    ///     vec![1, 2, 3],
+    ///     vec![4],
+    ///     vec![],
+    ///     vec![5, 6],
+    /// ]);
+    /// assert_eq!(a.len(), 4);
+    /// ```
     pub fn len(&self) -> usize {
         self.onsets.len()
     }

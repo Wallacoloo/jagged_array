@@ -52,3 +52,18 @@ fn bench_access_vec(b: &mut Bencher) {
     );
 }
 
+#[bench]
+fn bench_flat_len(b: &mut Bencher) {
+    let arr = build_array();
+    b.iter(||
+        arr.flat_len()
+    );
+}
+
+#[bench]
+fn bench_flat_len_vec(b: &mut Bencher) {
+    let arr = build_vec();
+    b.iter::<usize, _>(|| {
+        arr.iter().map(|row| row.len()).sum()
+    });
+}
