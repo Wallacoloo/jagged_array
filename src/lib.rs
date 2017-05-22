@@ -2,19 +2,22 @@
 //! `Box<[Box<[T]>]>`, but implemented with better memory locality and fewer heap allocations.
 
 #[macro_use] extern crate try_opt;
+extern crate streaming_iterator;
 
-use std::iter::FromIterator;
+use std::iter::{FromIterator, IntoIterator};
 use std::mem;
 use std::ops::Index;
 use std::slice;
+
+use streaming_iterator as stream;
+use streaming_iterator::StreamingIterator;
 
 /// 2-dimensional jagged array type. It's equivalent to a
 /// `Box<Box<[mut T]>>`, but where all array data is stored contiguously
 /// and fewer allocations are performed.
 /// 
 /// Note that no dimension of the array can be modified after creation.
-/// **Jagged2 only supports positively-sized types** (i.e. empty structs or `()`
-/// will cause a runtime error).
+#[derive(Debug)]
 pub struct Jagged2<T> {
     /// Slices into the underlying storage, indexed by row.
     /// Minus bounds checking, data can be accessed essentially via
@@ -22,6 +25,12 @@ pub struct Jagged2<T> {
     /// Row length is accessed by `onsets[row].1`.
     onsets: Box<[(*mut T, usize)]>,
 }
+
+#[derive(Debug)]
+pub struct Stream<'a, T: 'a> {
+    onset_iter: stream::Convert<slice::Iter<'a, (*mut T, usize)>>,
+}
+
 
 impl<T> Index<(usize, usize)> for Jagged2<T> {
     type Output = T;
@@ -97,6 +106,43 @@ impl<T, ICol> FromIterator<ICol> for Jagged2<T>
         Self{ onsets }
     }
 }
+
+impl<'a, T> StreamingIterator for Stream<'a, T> {
+    type Item = [T];
+    fn advance(&mut self) {
+        self.onset_iter.advance();
+    }
+    fn get(&self) -> Option<&Self::Item> {
+        let &(row_addr, row_len) = *try_opt!(self.onset_iter.get());
+        Some(unsafe {
+            // The slice will have a lifetime limited to 'self,
+            // and self borrows the backing storage (through Jagged2),
+            // therefore the slice cannot outlive its storage;
+            // this is safe.
+            slice::from_raw_parts(row_addr, row_len)
+        })
+    }
+    // optional override done for performance gains.
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.onset_iter.size_hint()
+    }
+    // optional override done for performance gains.
+    fn count(self) -> usize {
+        self.onset_iter.count()
+    }
+    // optional override done for performance gains.
+    fn nth(&mut self, n: usize) -> Option<&Self::Item> {
+        let &(row_addr, row_len) = *try_opt!(self.onset_iter.nth(n));
+        Some(unsafe {
+            // The slice will have a lifetime limited to 'self,
+            // and self borrows the backing storage (through Jagged2),
+            // therefore the slice cannot outlive its storage;
+            // this is safe.
+            slice::from_raw_parts(row_addr, row_len)
+        })
+    }
+}
+
 
 impl<T> Jagged2<T> {
     /// Index into the jagged array. The index is given in (Major, Minor) form,
@@ -280,6 +326,53 @@ impl<T> Jagged2<T> {
     /// ```
     pub fn len(&self) -> usize {
         self.onsets.len()
+    }
+
+    /// Create a [streaming iterator] over the rows of this array.
+    /// Lifetime restrictions prevent implementing `std::iter::Iterator` for this
+    /// type, however a streaming iterator provides similar features except that
+    /// the lifetime of the items it yields is tied to the lifetime of the iterator
+    /// itself.
+    ///
+    /// Usage:
+    /// ```
+    /// use std::iter::FromIterator;
+    /// use jagged_array::Jagged2;
+    /// let a = Jagged2::from_iter(vec![
+    ///     vec![1, 2, 3],
+    ///     vec![4],
+    /// ]);
+    /// let iter = a.stream();
+    /// while let Some(row) = iter.next() {
+    ///     println!("row: {:?}", row);
+    /// }
+    /// ```
+    ///
+    /// [streaming iterator](https://docs.rs/streaming-iterator)
+    pub fn stream<'a>(&'a self) -> Stream<'a, T> {
+        Stream{ onset_iter: stream::convert(self.onsets.iter()) }
+    }
+
+    /// Consumes self and returns the underlying storage
+    /// (identical to `as_flat_slice_mut`, but owned).
+    ///
+    /// The slice can optionally be turned into a vector by calling
+    /// `slice::into_vec()` on the result.
+    pub fn into_boxed_slice(self) -> Box<[T]> {
+        self.into_components().0
+    }
+    /// Consumes self and returns a tuple whose first element is a boxed slice
+    /// of the underlying storage (identical to `as_flat_slice_mut`, but owned)
+    /// and whose second element indicates the start address and length of each row.
+    fn into_components(mut self) -> (Box<[T]>, Box<[(*mut T, usize)]>) {
+        unsafe {
+            let slice = Box::from_raw(self.as_flat_slice_mut() as *mut [T]);
+            let onsets = mem::replace(&mut self.onsets, Vec::new().into_boxed_slice());
+            // The box now owns all our memory; don't drop self in order to avoid
+            // double-freeing.
+            mem::forget(self);
+            (slice, onsets)
+        }
     }
 }
 
