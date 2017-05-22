@@ -6,7 +6,7 @@ authors = ["Colin Wallace <wallacoloo@gmail.com>"]
 [dependencies]
 try_opt = "0.1"
 #streaming-iterator = "0.1"
-streaming-iterator = { git = "https://github.com/Wallacoloo/streaming-iterator", branch="derive-debug" }
+streaming-iterator = { git = "https://github.com/sfackler/streaming-iterator" }
 
 [dev-dependencies]
 rand = "0.3"
