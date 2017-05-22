@@ -19,10 +19,10 @@
 //!     vec![5, 6],
 //! ]);
 //!
-//! // indexing is done in (row, column) form and supports `get` and `get_mut` variants.
-//! assert_eq!(a[(1, 0)], 4);
-//! *a.get_mut((1, 0)).unwrap() = 11;
-//! assert_eq!(a.get((1, 0)), Some(&11));
+//! // indexing is done in [row, column] form and supports `get` and `get_mut` variants.
+//! assert_eq!(a[[1, 0]], 4);
+//! *a.get_mut([1, 0]).unwrap() = 11;
+//! assert_eq!(a.get([1, 0]), Some(&11));
 //!
 //! // Whole rows can also be accessed and modified
 //! assert_eq!(a.get_row(3), Some(&[5, 6][..]));
@@ -77,13 +77,13 @@ pub struct Stream<'a, T: 'a> {
 }
 
 
-impl<T> Index<(usize, usize)> for Jagged2<T> {
+impl<T> Index<[usize; 2]> for Jagged2<T> {
     type Output = T;
     /// Index into the jagged array. The index is given in (Major, Minor) form,
     /// i.e. (row, column) or (outer, inner).
-    /// `array[(0, 0)]` is adjacent to `array[(0, 1)]` in memory but not
-    /// necessarily to `array[(1, 0)]`.
-    fn index(&self, index: (usize, usize)) -> &T {
+    /// `array[[0, 0]]` is adjacent to `array[[0, 1]]` in memory but not
+    /// necessarily to `array[[1, 0]]`.
+    fn index(&self, index: [usize; 2]) -> &T {
         self.get(index).unwrap()
     }
 }
@@ -124,7 +124,7 @@ impl<T, ICol> FromIterator<ICol> for Jagged2<T>
     /// assert_eq!(a.len(), 4); // 4 rows
     /// assert_eq!(a.as_flat_slice(), &[1, 2, 3, 4, 5, 6][..]); // contiguous view
     /// assert_eq!(a.get_row(3), Some(&[5, 6][..])); // third row
-    /// assert_eq!(a[(0, 1)], 2); // first row, second column
+    /// assert_eq!(a[[0, 1]], 2); // first row, second column
     /// ```
     fn from_iter<IRow>(row_iter: IRow) -> Self
         where IRow: IntoIterator<Item=ICol>
@@ -211,12 +211,12 @@ impl<T> Jagged2<T> {
     ///     vec![],
     ///     vec![5, 6],
     /// ]);
-    /// assert_eq!(a.get((1, 0)), Some(&4));
-    /// assert_eq!(a.get((2, 0)), None);
+    /// assert_eq!(a.get([1, 0]), Some(&4));
+    /// assert_eq!(a.get([2, 0]), None);
     /// ```
-    pub fn get(&self, index: (usize, usize)) -> Option<&T> {
-        let view = try_opt!(self.get_row(index.0));
-        view.get(index.1)
+    pub fn get(&self, index: [usize; 2]) -> Option<&T> {
+        let view = try_opt!(self.get_row(index[0]));
+        view.get(index[1])
     }
 
     /// Index into the jagged array. The index is given in (Major, Minor) form,
@@ -232,13 +232,13 @@ impl<T> Jagged2<T> {
     ///     vec![],
     ///     vec![5, 6],
     /// ]);
-    /// assert_eq!(a.get((1, 0)), Some(&4));
-    /// *a.get_mut((1, 0)).unwrap() = 11;
-    /// assert_eq!(a.get((1, 0)), Some(&11));
+    /// assert_eq!(a.get([1, 0]), Some(&4));
+    /// *a.get_mut([1, 0]).unwrap() = 11;
+    /// assert_eq!(a.get([1, 0]), Some(&11));
     /// ```
-    pub fn get_mut(&mut self, index: (usize, usize)) -> Option<&mut T> {
-        let view = try_opt!(self.get_row_mut(index.0));
-        view.get_mut(index.1)
+    pub fn get_mut(&mut self, index: [usize; 2]) -> Option<&mut T> {
+        let view = try_opt!(self.get_row_mut(index[0]));
+        view.get_mut(index[1])
     }
 
     /// Retrieve the given row as a contiguous slice of memory.
@@ -275,7 +275,7 @@ impl<T> Jagged2<T> {
     /// ]);
     /// assert_eq!(a.get_row_mut(3), Some(&mut[5, 6][..]));
     /// a.get_row_mut(3).unwrap()[1] = 11;
-    /// assert_eq!(a[(3, 1)], 11);
+    /// assert_eq!(a[[3, 1]], 11);
     /// ```
     pub fn get_row_mut(&mut self, row: usize) -> Option<&mut [T]> {
         let &(row_onset, row_len) = try_opt!(self.onsets.get(row));
@@ -320,7 +320,7 @@ impl<T> Jagged2<T> {
     /// ]);
     /// assert_eq!(a.as_flat_slice()[3], 4);
     /// a.as_flat_slice_mut()[3] = 33;
-    /// assert_eq!(a[(1, 0)], 33);
+    /// assert_eq!(a[[1, 0]], 33);
     /// ```
     pub fn as_flat_slice_mut(&mut self) -> &mut [T] {
         match self.onsets.get(0) {
