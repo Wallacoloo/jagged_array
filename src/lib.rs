@@ -98,6 +98,13 @@ impl<T> Drop for Jagged2<T> {
     }
 }
 
+impl<T> Default for Jagged2<T> {
+    fn default() -> Self {
+        let onsets = Vec::new().into_boxed_slice();
+        Self{ onsets }
+    }
+}
+
 impl<T, ICol> FromIterator<ICol> for Jagged2<T>
     where ICol: IntoIterator<Item=T>
 {
