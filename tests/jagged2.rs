@@ -1,4 +1,5 @@
 extern crate jagged_array;
+extern crate serde_json;
 
 use std::iter::FromIterator;
 use jagged_array::Jagged2;
@@ -63,10 +64,27 @@ fn test_empty() {
         assert_eq!(a.flat_len(), 0);
         assert_eq!(a.get([0, 0]), None);
         assert_eq!(a.get_row(0), None);
-        assert_eq!(a.as_flat_slice(), &[]);
+        assert_eq!(a.as_flat_slice(), &[] as &[u16]);
     }
     test_empty_for(Default::default());
     test_empty_for(Jagged2::from_iter(
         (0..0).map(|_| (0..0))
     ));
+}
+
+#[test]
+fn test_serde() {
+    let a = Jagged2::from_iter(vec![
+        vec![1, 2],
+        vec![],
+        vec![3],
+    ]);
+    let s = serde_json::to_string(&a).unwrap();
+    assert_eq!(s, "[[1,2],[],[3]]");
+    let b: Jagged2<u32> = serde_json::from_str(&s).unwrap();
+    // Currently lacking Eq operator.
+    assert_eq!(a.len(), b.len());
+    assert_eq!(a.get_row(0), b.get_row(0));
+    assert_eq!(a.get_row(1), b.get_row(1));
+    assert_eq!(a.get_row(2), b.get_row(2));
 }
