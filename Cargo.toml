@@ -13,6 +13,7 @@ license = "MIT/Apache-2.0"
 
 [dependencies]
 try_opt = "0.1"
+serde = "1.0"
 streaming-iterator = "0.1"
 #streaming-iterator = { git = "https://github.com/sfackler/streaming-iterator" }
 

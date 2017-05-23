@@ -39,12 +39,16 @@
 //! ```
 
 #[macro_use] extern crate try_opt;
+extern crate serde;
 extern crate streaming_iterator;
 
 use std::iter::{FromIterator, IntoIterator};
 use std::mem;
 use std::ops::Index;
 use std::slice;
+
+use serde::de::{Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer, SerializeSeq};
 
 use streaming_iterator as stream;
 use streaming_iterator::StreamingIterator;
@@ -75,7 +79,6 @@ pub struct Jagged2<T> {
 pub struct Stream<'a, T: 'a> {
     onset_iter: stream::Convert<slice::Iter<'a, (*mut T, usize)>>,
 }
-
 
 impl<T> Index<[usize; 2]> for Jagged2<T> {
     type Output = T;
@@ -193,6 +196,35 @@ impl<'a, T> StreamingIterator for Stream<'a, T> {
             // this is safe.
             slice::from_raw_parts(row_addr, row_len)
         })
+    }
+}
+
+impl<T> Serialize for Jagged2<T>
+    where T: Serialize
+{
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+        where S: Serializer
+    {
+        // Serialize as a sequence of [T] sequences.
+        let mut seq = serializer.serialize_seq(Some(self.len()))?;
+        let mut stream = self.stream();
+        while let Some(row) = stream.next() {
+            seq.serialize_element(row)?;
+        }
+        seq.end()
+    }
+}
+
+impl<'de, T> Deserialize<'de> for Jagged2<T>
+    where T: Deserialize<'de>
+{
+    fn deserialize<D>(deserializer: D) -> Result<Jagged2<T>, D::Error>
+        where D: Deserializer<'de>
+    {
+        // Deserialize to Vec<Vec<T>> and then transform into a jagged array.
+        // TODO: this could be done more efficiently by hooking deeper into serde.
+        let as_vec: Vec<Vec<T>> = Deserialize::deserialize(deserializer)?;
+        Ok(Jagged2::from_iter(as_vec))
     }
 }
 
