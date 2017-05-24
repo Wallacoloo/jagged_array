@@ -73,6 +73,40 @@ fn test_empty() {
 }
 
 #[test]
+fn test_clone_eq() {
+    // Test that arrays impl Clone & Eq as expected.
+    let a = Jagged2::from_iter(vec![
+        vec![1, 2],
+        vec![],
+        vec![3],
+    ]);
+    let b = Jagged2::from_iter(vec![
+        vec![1, 2],
+        vec![6],
+        vec![3],
+    ]);
+    let c = Jagged2::from_iter(vec![
+        vec![0, 2],
+        vec![],
+        vec![3],
+    ]);
+    let d = Jagged2::from_iter(vec![
+        vec![1, 2],
+        vec![],
+        vec![3],
+        vec![]
+    ]);
+    let e = a.clone();
+    assert_ne!(a, b);
+    assert_ne!(a, c);
+    assert_ne!(a, d);
+    assert_ne!(b, c);
+    assert_ne!(b, d);
+    assert_ne!(c, d);
+    assert_eq!(a, e);
+}
+
+#[test]
 fn test_serde() {
     let a = Jagged2::from_iter(vec![
         vec![1, 2],

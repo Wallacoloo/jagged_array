@@ -230,6 +230,27 @@ impl<T> Clone for Jagged2<T>
     }
 }
 
+impl<T> PartialEq for Jagged2<T>
+    where T: PartialEq
+{
+    fn eq(&self, other: &Jagged2<T>) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+        // TODO: implement using .zip() and .all()
+        // Currently StreamingIterator doesn't support .zip
+        let (mut stream_me, mut stream_other) = (self.stream(), other.stream());
+        while let (Some(row_me), Some(row_other)) = (stream_me.next(), stream_other.next()) {
+            if row_me != row_other {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+impl<T> Eq for Jagged2<T> where T: Eq {}
+
 impl<T> Serialize for Jagged2<T>
     where T: Serialize
 {
