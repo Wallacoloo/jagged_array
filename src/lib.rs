@@ -42,13 +42,15 @@
 extern crate serde;
 extern crate streaming_iterator;
 
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::iter::{FromIterator, IntoIterator};
+use std::marker::PhantomData;
 use std::mem;
 use std::ops::Index;
 use std::slice;
 
-use serde::de::{Deserialize, Deserializer};
+use serde::de::{Deserialize, Deserializer, DeserializeSeed, SeqAccess, Visitor};
 use serde::ser::{Serialize, Serializer, SerializeSeq};
 
 use streaming_iterator as stream;
@@ -90,7 +92,7 @@ pub struct Jagged2<T> {
 // The builder is 100% safe, before finalization.
 // Because the `onsets` field is using indexes prior to finalization,
 // the struct is safe to Clone, Eq or Hash predictably.
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Jagged2Builder<T> {
     /// Holds all the array data, contiguously.
     storage: Vec<T>,
@@ -287,10 +289,95 @@ impl<'de, T> Deserialize<'de> for Jagged2<T>
     fn deserialize<D>(deserializer: D) -> Result<Jagged2<T>, D::Error>
         where D: Deserializer<'de>
     {
-        // Deserialize to Vec<Vec<T>> and then transform into a jagged array.
-        // TODO: this could be done more efficiently by hooking deeper into serde.
-        let as_vec: Vec<Vec<T>> = Deserialize::deserialize(deserializer)?;
-        Ok(Jagged2::from_iter(as_vec))
+        // Visit the entire Jagged2 array; returns the array.
+        struct JaggedVisitor<T>(PhantomData<T>);
+        // Deserialize one row of a Jagged2 array into the builder.
+        struct RowDeserializer<'a, T: 'a>(&'a mut Jagged2Builder<T>);
+        // Take a Serde SeqAccess type and adapt it to an iterator.
+        // This lets use use the array builder's `extend` method.
+        struct SeqAccessToIter<'a, A, E: 'a, T> {
+            seq: A,
+            /// Where to write back the error if an error occurs in self.next()
+            result: &'a mut Result<(), E>,
+            phantom: PhantomData<T>,
+        }
+
+        impl<'de, T> Visitor<'de> for JaggedVisitor<T>
+            where T: Deserialize<'de>
+        {
+            type Value = Jagged2<T>;
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an array of arrays of T (i.e. [[T]])")
+            }
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+                where A: SeqAccess<'de>
+            {
+                // Create a builder, then deserialize into it one row at a time.
+                let mut builder = Jagged2Builder::with_capacity(seq.size_hint().unwrap_or(0), 0);
+                while seq.next_element_seed(RowDeserializer(&mut builder))?.is_some() {}
+                Ok(builder.into())
+            }
+        }
+        impl<'de, 'a, T> DeserializeSeed<'de> for RowDeserializer<'a, T>
+            where T: Deserialize<'de>
+        {
+            type Value = (); // deserialize into a builder; nothing is returned
+            fn deserialize<D>(self, deserializer: D) -> Result<(), D::Error>
+                where D: Deserializer<'de>
+            {
+                deserializer.deserialize_seq(self)
+            }
+        }
+        impl<'de, 'a, T: 'a> Visitor<'de> for RowDeserializer<'a, T>
+            where T: Deserialize<'de>
+        {
+            type Value = ();
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("an sequence of T (i.e. [T])")
+            }
+            fn visit_seq<A>(self, seq: A) -> Result<(), A::Error>
+                where A: SeqAccess<'de>
+            {
+                // Adapt the row SeqAccessor into an iterator,
+                // and use the builder's `extend` method to capture the whole row.
+                let mut result: Result<(), A::Error> = Ok(());
+                self.0.extend(SeqAccessToIter{
+                    seq,
+                    result: &mut result,
+                    phantom: PhantomData
+                });
+                result
+            }
+        }
+
+        impl<'de, 'a, A, T> Iterator for SeqAccessToIter<'a, A, A::Error, T>
+            where A: SeqAccess<'de>,
+            T: Deserialize<'de>
+        {
+            type Item = T;
+            fn next(&mut self) -> Option<T> {
+                // Yield the next item from the accessor.
+                // If it is an error, write this error to the result reference
+                // and terminate the iterator.
+                match self.seq.next_element() {
+                    Ok(value) => value,
+                    Err(error) => {
+                        *self.result = Err(error);
+                        None
+                    }
+                }
+            }
+            fn size_hint(&self) -> (usize, Option<usize>) {
+                match self.seq.size_hint() {
+                    None => (0, None),
+                    // Serde's size_hint is *exact*. i.e. if the SeqAccess
+                    // provides a size_hint, it is simultaneously a lower and upper bound.
+                    Some(value) => (value, Some(value)),
+                }
+            }
+        }
+
+        deserializer.deserialize_seq(JaggedVisitor(PhantomData))
     }
 }
 
@@ -537,10 +624,7 @@ impl<T> Jagged2<T> {
 impl<T> Jagged2Builder<T> {
     /// Construct a new array builder, defaulted to not holding any rows.
     pub fn new() -> Self {
-        Self {
-            storage: Vec::new(),
-            onsets: Vec::new(),
-        }
+        Default::default()
     }
     /// Construct an empty array builder, but preallocate enough heap space
     /// for `row_cap` rows, and a total of `item_cap` items stored cumulatively
@@ -552,6 +636,15 @@ impl<T> Jagged2Builder<T> {
         Self {
             storage: Vec::with_capacity(item_cap),
             onsets: Vec::with_capacity(row_cap),
+        }
+    }
+}
+
+impl<T> Default for Jagged2Builder<T> {
+    fn default() -> Self {
+        Self {
+            storage: Vec::new(),
+            onsets: Vec::new(),
         }
     }
 }
