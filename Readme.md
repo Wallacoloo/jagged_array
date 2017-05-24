@@ -53,6 +53,25 @@ while let Some(row) = iter.next() {
 Documentation can be found on [docs.rs](https://docs.rs/jagged_array/)
 
 
+## Benchmarks
+
+```sh
+$ cargo bench
+test bench_access_jag   ... bench:         109 ns/iter (+/- 4)
+test bench_access_vec   ... bench:         122 ns/iter (+/- 4)
+test bench_collect_jag  ... bench:       2,619 ns/iter (+/- 177)
+test bench_collect_vec  ... bench:       3,638 ns/iter (+/- 854)
+test bench_flat_len_jag ... bench:           0 ns/iter (+/- 0)
+test bench_flat_len_vec ... bench:          50 ns/iter (+/- 5)
+test bench_serde_jag    ... bench:     343,839 ns/iter (+/- 36,172)
+test bench_serde_vec    ... bench:     378,089 ns/iter (+/- 37,954)
+```
+
+`*_jag` indicates runtime for the `Jagged2<u32>` implementation,
+`*_vec` indicates runtime for `Vec<Vec<u32>>`.
+See [benches/jagged2.rs](benches/jagged2.rs) for more details.
+
+
 ## License
 
 The code in this repository is licensed under either of
