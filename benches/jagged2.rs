@@ -26,7 +26,7 @@ fn build_array() -> Jagged2<u32> {
 
 
 #[bench]
-fn bench_collect(b: &mut Bencher) {
+fn bench_collect_jag(b: &mut Bencher) {
     b.iter(build_array)
 }
 
@@ -36,7 +36,7 @@ fn bench_collect_vec(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_access(b: &mut Bencher) {
+fn bench_access_jag(b: &mut Bencher) {
     let mut rng = rand::XorShiftRng::new_unseeded();
     let arr = build_array();
     b.iter(||
@@ -54,7 +54,7 @@ fn bench_access_vec(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_flat_len(b: &mut Bencher) {
+fn bench_flat_len_jag(b: &mut Bencher) {
     let arr = build_array();
     b.iter(||
         arr.flat_len()
@@ -70,7 +70,7 @@ fn bench_flat_len_vec(b: &mut Bencher) {
 }
 
 #[bench]
-fn bench_serde(b: &mut Bencher) {
+fn bench_serde_jag(b: &mut Bencher) {
     let arr = build_array();
     b.iter(|| -> Jagged2<u32> {
         let s = serde_json::to_string(&arr).unwrap();
