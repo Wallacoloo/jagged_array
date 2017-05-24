@@ -2,6 +2,7 @@
 
 extern crate jagged_array;
 extern crate rand;
+extern crate serde_json;
 extern crate test;
 
 use std::iter::FromIterator;
@@ -65,5 +66,23 @@ fn bench_flat_len_vec(b: &mut Bencher) {
     let arr = build_vec();
     b.iter::<usize, _>(|| {
         arr.iter().map(|row| row.len()).sum()
+    });
+}
+
+#[bench]
+fn bench_serde(b: &mut Bencher) {
+    let arr = build_array();
+    b.iter(|| -> Jagged2<u32> {
+        let s = serde_json::to_string(&arr).unwrap();
+        serde_json::from_str(&s).unwrap()
+    });
+}
+
+#[bench]
+fn bench_serde_vec(b: &mut Bencher) {
+    let vec = build_vec();
+    b.iter(|| -> Vec<Vec<u32>> {
+        let s = serde_json::to_string(&vec).unwrap();
+        serde_json::from_str(&s).unwrap()
     });
 }
