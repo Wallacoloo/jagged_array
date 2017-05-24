@@ -42,6 +42,7 @@
 extern crate serde;
 extern crate streaming_iterator;
 
+use std::hash::{Hash, Hasher};
 use std::iter::{FromIterator, IntoIterator};
 use std::mem;
 use std::ops::Index;
@@ -250,6 +251,19 @@ impl<T> PartialEq for Jagged2<T>
 }
 
 impl<T> Eq for Jagged2<T> where T: Eq {}
+
+impl<T> Hash for Jagged2<T>
+    where T: Hash
+{
+    fn hash<H>(&self, state: &mut H)
+        where H: Hasher
+    {
+        let mut stream = self.stream();
+        while let Some(row) = stream.next() {
+            row.hash(state);
+        }
+    }
+}
 
 impl<T> Serialize for Jagged2<T>
     where T: Serialize
