@@ -39,7 +39,7 @@ fn bench_access(b: &mut Bencher) {
     let mut rng = rand::XorShiftRng::new_unseeded();
     let arr = build_array();
     b.iter(||
-        (1..16).map(|_| arr.get((rng.gen::<usize>() % 128, rng.gen::<usize>() % 128))).last()
+        (1..16).map(|_| arr.get([rng.gen::<usize>() % 128, rng.gen::<usize>() % 128])).last()
     );
 }
 
