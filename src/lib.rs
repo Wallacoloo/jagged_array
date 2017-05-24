@@ -7,19 +7,30 @@
 //! extern crate jagged_array;
 //! extern crate streaming_iterator;
 //! use std::iter::FromIterator;
-//! use jagged_array::Jagged2;
+//! use jagged_array::{Jagged2, Jagged2Builder};
 //! use streaming_iterator::StreamingIterator;
 //!
 //! # fn main() {
-//! // Create a jagged array from a vector of vectors
-//! let mut a = Jagged2::from_iter(vec![
+//! // Create a builder object for the array, and append some data.
+//! // Each `extend` call builds another row.
+//! let mut builder = Jagged2Builder::new();
+//! builder.extend(&[1, 2, 3]); // row 0 = [1, 2, 3]
+//! builder.extend(vec![4]);    // row 1 = [4]
+//! builder.extend(&[]);        // row 2 = []
+//! builder.extend(5..7);       // row 3 = [5, 6]
+//!
+//! // Finalize the builder into a non-resizable jagged array.
+//! let mut a: Jagged2<u32> = builder.into();
+//! // Alternatively, we could have created the same array from a Vec<Vec<T>> type:
+//! let alt_form = Jagged2::from_iter(vec![
 //!     vec![1, 2, 3],
 //!     vec![4],
 //!     vec![],
 //!     vec![5, 6],
 //! ]);
+//! assert_eq!(a, alt_form);
 //!
-//! // indexing is done in [row, column] form and supports `get` and `get_mut` variants.
+//! // Indexing is done in [row, column] form and supports `get` and `get_mut` variants.
 //! assert_eq!(a[[1, 0]], 4);
 //! *a.get_mut([1, 0]).unwrap() = 11;
 //! assert_eq!(a.get([1, 0]), Some(&11));
