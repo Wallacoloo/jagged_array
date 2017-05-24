@@ -72,6 +72,12 @@ use streaming_iterator::StreamingIterator;
 /// and fewer allocations are performed.
 /// 
 /// Note that no dimension of the array can be modified after creation.
+///
+/// Jagged arrays can be created via the [`Jagged2Builder`] type
+/// or the [`from_iter`] method.
+///
+/// [`Jagged2Builder`]: struct.Jagged2Builder.html
+/// [`from_iter`]: struct.Jagged2.html#method.from_iter
 #[derive(Debug)]
 pub struct Jagged2<T> {
     /// Slices into the underlying storage, indexed by row.
@@ -115,7 +121,9 @@ pub struct Jagged2Builder<T> {
 
 /// [`StreamingIterator`] implementation for [`Jagged2`].
 /// This allows for iteration with some lifetime restrictions on the value
-/// returned by `next`. See [`Jagged2::stream`] for more info.
+/// returned by `next`.
+/// 
+/// See [`Jagged2::stream`] for more info.
 ///
 /// [`StreamingIterator`]: ../streaming_iterator/trait.StreamingIterator.html
 /// [`Jagged2`]: struct.Jagged2.html
