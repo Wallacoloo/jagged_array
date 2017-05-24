@@ -67,6 +67,38 @@ pub struct Jagged2<T> {
     onsets: Box<[(*mut T, usize)]>,
 }
 
+/// Struct to facilitate building a jagged array row by row.
+///
+/// # Example
+/// ```
+/// use jagged_array::{Jagged2, Jagged2Builder};
+///
+/// let mut builder = Jagged2Builder::new();
+/// builder.extend(&[1, 2]); // push an array/slice
+/// builder.extend((0..2)); // push an iterator (range)
+/// builder.extend(vec![3]); // push and consume a vector
+///
+/// // Finalize the builder into an array.
+/// let array: Jagged2<u32> = builder.into();
+///
+/// assert_eq!(array.len(), 3);
+/// assert_eq!(array.get_row(0), Some(&[1, 2][..]));
+/// assert_eq!(array.get_row(1), Some(&[0, 1][..]));
+/// assert_eq!(array.get_row(2), Some(&[3][..]));
+/// ```
+// The builder is 100% safe, before finalization.
+// Because the `onsets` field is using indexes prior to finalization,
+// the struct is safe to Clone, Eq or Hash predictably.
+#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+pub struct Jagged2Builder<T> {
+    /// Holds all the array data, contiguously.
+    storage: Vec<T>,
+    /// Holds (base address, row length) for each row.
+    /// Note that the base address isn't actually an address,
+    /// but the offset into the storage in units of T, cast to *mut T.
+    onsets: Vec<(*mut T, usize)>,
+}
+
 /// [`StreamingIterator`] implementation for [`Jagged2`].
 /// This allows for iteration with some lifetime restrictions on the value
 /// returned by `next`. See [`Jagged2::stream`] for more info.
@@ -133,33 +165,19 @@ impl<T, ICol> FromIterator<ICol> for Jagged2<T>
         where IRow: IntoIterator<Item=ICol>
     {
         // Tranform all inputs into their iterators.
-        // We need to collect into a vector so that we can get an accurate size
+        // We need to collect *just the iterators* into a vector so that we can get an accurate size
         // estimate of the overall storage BEFORE any more allocation.
         // Having an accurate size to use with Vec::with_capacity makes a substantial different
         // (can halve the time it takes to construct the jagged array).
         let row_iters: Vec<_> = row_iter.into_iter().map(|i| i.into_iter()).collect();
-        let mut storage = Vec::with_capacity(row_iters.iter().map(|i| i.size_hint().0).sum());
-        let mut onsets = Vec::with_capacity(row_iters.len());
-        for col_iter in row_iters {
-            // store the index of the row, transmuted to *mut T.
-            // This transmutation is done in order to reuse this vector for
-            // holding absolute row addresses, once the base address is finalized.
-            let row_start = storage.len();
-            storage.extend(col_iter);
-            let row_end = storage.len();
-            onsets.push((row_start as *mut T, row_end-row_start));
-        }
+        let row_estimate = row_iters.len();
+        let item_estimate = row_iters.iter().map(|i| i.size_hint().0).sum();
+        let mut builder = Jagged2Builder::with_capacity(row_estimate, item_estimate);
 
-        let storage = Box::into_raw(storage.into_boxed_slice()) as *mut T;
-        // Transform the onsets from relative indices to absolute addresses.
-        for onset in onsets.iter_mut() {
-            unsafe {
-                onset.0 = storage.offset(onset.0 as isize);
-            }
+        for row in row_iters {
+            builder.extend(row);
         }
-        let onsets = onsets.into_boxed_slice();
-        // Now data can be accessed via `onsets[row][column]`
-        Self{ onsets }
+        builder.into()
     }
 }
 
@@ -196,6 +214,19 @@ impl<'a, T> StreamingIterator for Stream<'a, T> {
             // this is safe.
             slice::from_raw_parts(row_addr, row_len)
         })
+    }
+}
+
+impl<T> Clone for Jagged2<T>
+    where T: Clone
+{
+    fn clone(&self) -> Self {
+        let mut builder = Jagged2Builder::with_capacity(self.len(), self.flat_len());
+        let mut rows = self.stream();
+        while let Some(row) = rows.next() {
+            builder.extend(row.iter().cloned());
+        }
+        builder.into()
     }
 }
 
@@ -464,6 +495,79 @@ impl<T> Jagged2<T> {
             mem::forget(self);
             (slice, onsets)
         }
+    }
+}
+
+
+impl<T> Jagged2Builder<T> {
+    /// Construct a new array builder, defaulted to not holding any rows.
+    pub fn new() -> Self {
+        Self {
+            storage: Vec::new(),
+            onsets: Vec::new(),
+        }
+    }
+    /// Construct an empty array builder, but preallocate enough heap space
+    /// for `row_cap` rows, and a total of `item_cap` items stored cumulatively
+    /// in the array.
+    ///
+    /// Adding more rows/items than specified after using this constructor is
+    /// not an error; more space will be allocated on demand.
+    pub fn with_capacity(row_cap: usize, item_cap: usize) -> Self {
+        Self {
+            storage: Vec::with_capacity(item_cap),
+            onsets: Vec::with_capacity(row_cap),
+        }
+    }
+}
+
+impl<T> Extend<T> for Jagged2Builder<T> {
+    /// Push a new row into the builder
+    fn extend<I>(&mut self, row: I)
+        where I: IntoIterator<Item=T>
+    {
+        let row_data = row.into_iter();
+
+        let row_start = self.storage.len();
+        self.storage.extend(row_data);
+        let row_end = self.storage.len();
+        // store the index of the row, transmuted to *mut T.
+        // This transmutation is done in order to reuse this vector for
+        // holding absolute row addresses, once the base address is finalized.
+        self.onsets.push((row_start as *mut T, row_end-row_start));
+    }
+}
+
+impl<'a, T> Extend<&'a T> for Jagged2Builder<T>
+    where T: 'a + Copy
+{
+    /// Push a new row into the builder;
+    /// this also works for array/slice types passed by reference, if T is Copy.
+    fn extend<I>(&mut self, row: I)
+        where I: IntoIterator<Item=&'a T>
+    {
+        self.extend(row.into_iter().cloned())
+    }
+}
+
+impl<T> Into<Jagged2<T>> for Jagged2Builder<T> {
+    fn into(self) -> Jagged2<T> {
+        // Make the storage immutable, and then also cast away its length.
+        // Length data is redundant with the slice info we already have.
+        let storage = Box::into_raw(self.storage.into_boxed_slice()) as *mut T;
+        let mut onsets = self.onsets;
+
+        // Convert the row base addresses from relative indices to absolute addresses.
+        // This is safe to do now because `storage` is immutable and fixed.
+        for onset in onsets.iter_mut() {
+            unsafe {
+                onset.0 = storage.offset(onset.0 as isize);
+            }
+        }
+        // Also finalize the row metadata
+        let onsets = onsets.into_boxed_slice();
+        // Now data can be accessed via (psuedo): `onsets[row].0[column]`
+        Jagged2{ onsets }
     }
 }
 
