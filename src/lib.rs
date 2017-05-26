@@ -537,6 +537,9 @@ impl<T> Jagged2<T> {
 
     /// Return the total number of `T` held in the array.
     ///
+    /// This is generally a constant-time operation, but if `T` is a zero-sized type
+    /// then the time complexity is proportional to the number of rows in the array.
+    ///
     /// # Example
     /// ```
     /// use std::iter::FromIterator;
@@ -657,7 +660,45 @@ impl<T> Jagged2Builder<T> {
             onsets: Vec::with_capacity(row_cap),
         }
     }
+    /// Return the number of rows held in the array builder.
+    pub fn len(&self) -> usize {
+        self.onsets.len()
+    }
+    /// Return the total number of `T` held in the array.
+    pub fn flat_len(&self) -> usize {
+        self.storage.len()
+    }
+    /// If `new_len < self.len()`, the array will be extended
+    /// with empty rows until it reaches the given length. Otherwise,
+    /// rows will be truncated from the tail of the array until the length is reached.
+    ///
+    /// # Example
+    /// ```
+    /// use jagged_array::Jagged2Builder;
+    /// let mut builder: Jagged2Builder<u32> = Jagged2Builder::new();
+    /// builder.extend(&[1, 2]);
+    /// builder.extend(&[3]);
+    /// builder.resize(4);
+    /// let mut expected: Jagged2Builder<u32> = Jagged2Builder::new();
+    /// expected.extend(&[1, 2]);
+    /// expected.extend(&[3]);
+    /// expected.extend(&[]);
+    /// expected.extend(&[]);
+    /// assert_eq!(builder, expected);
+    /// ```
+    pub fn resize(&mut self, new_len: usize) {
+        // new rows start at end of array w/ length=0
+        let onset_padding = (self.flat_len() as *mut T, 0);
+        self.onsets.resize(new_len, onset_padding);
+
+        let new_size = match self.onsets.last() {
+            None => 0, // no rows -> no data
+            Some(&(row_start, row_length)) => (row_start as usize) + row_length,
+        };
+        self.storage.drain(new_size..);
+    }
 }
+
 
 impl<T> Default for Jagged2Builder<T> {
     fn default() -> Self {
