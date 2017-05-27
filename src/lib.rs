@@ -54,6 +54,7 @@ extern crate serde;
 extern crate streaming_iterator;
 
 use std::fmt;
+use std::fmt::Debug;
 use std::hash::{Hash, Hasher};
 use std::iter::{FromIterator, IntoIterator};
 use std::marker::PhantomData;
@@ -78,7 +79,6 @@ use streaming_iterator::StreamingIterator;
 ///
 /// [`Jagged2Builder`]: struct.Jagged2Builder.html
 /// [`from_iter`]: struct.Jagged2.html#method.from_iter
-#[derive(Debug)]
 pub struct Jagged2<T> {
     /// Slices into the underlying storage, indexed by row.
     /// Minus bounds checking, data can be accessed essentially via
@@ -160,6 +160,29 @@ impl<T> Default for Jagged2<T> {
         // zero-sized array with no elements
         let onsets = Vec::new().into_boxed_slice();
         Self{ onsets }
+    }
+}
+
+impl<T> Debug for Jagged2<T>
+    where T: Debug
+{
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        // empty array should be compactly displayed.
+        if self.is_empty() {
+            return f.write_str("[]");
+        }
+
+        f.write_str("[\n")?;
+
+        let mut stream = self.stream();
+        while let Some(row) = stream.next() {
+            f.write_str("  ")?;
+            row.fmt(f)?;
+            f.write_str("\n")?;
+        }
+
+        f.write_str("]")?;
+        Ok(())
     }
 }
 
@@ -586,6 +609,12 @@ impl<T> Jagged2<T> {
     /// ```
     pub fn len(&self) -> usize {
         self.onsets.len()
+    }
+
+    /// Return true if the array holds no items.
+    /// Semantically equivalent to `jagged2.len() == 0`.
+    pub fn is_empty(&self) -> bool {
+        self.onsets.is_empty()
     }
 
     /// Create a [streaming iterator] over the rows of this array.
